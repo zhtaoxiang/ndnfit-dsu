@@ -3,6 +3,8 @@
 #include <ndn-cxx/face.hpp>
 #include <ndn-cxx/util/scheduler.hpp>
 #include <ndn-cxx/util/time.hpp>
+#include <ndn-group-encrypt/schedule.hpp>
+//#include <mysql++/query.h>
 #include <ndn-cxx/transport/tcp-transport.hpp>
 #include <rapidjson/document.h>		// rapidjson's DOM-style API
 #include <rapidjson/prettywriter.h>	// for stringify JSON
@@ -13,18 +15,25 @@ namespace ndn {
     namespace dsu {
         
         static const std::string COMMON_PREFIX = "/org/openmhealth";
-        static const std::string UPDATE_INFO_SUFFIX = "/data/fitness/physical_activity/time_location/update_info";
-        static const std::string CATALOG_SUFFIX = "/data/fitness/physical_activity/time_location/catalog";
-        static const std::string DATA_SUFFIX = "/data/fitness/physical_activity/time_location";
+        static const std::string UPDATE_INFO_SUFFIX = "/SAMPLE/fitness/physical_activity/time_location/update_info";
+        static const std::string CATALOG_SUFFIX = "/SAMPLE/fitness/physical_activity/time_location/catalog";
+        static const std::string DATA_SUFFIX = "/SAMPLE/fitness/physical_activity/time_location";
         
         static const name::Component CATALOG_COMP("catalog");
         static const name::Component UPDATA_INFO_COMP("update_info");
+        static const name::Component CKEY_COMP("C-KEY");
         
         static const int INTEREST_TIME_OUT_SECONDS = 60;
         
         static const std::string CONFIRM_PREFIX = "/ndn/edu/ucla/remap/ndnfit/dsu/confirm/org/openmhealth";
         static const std::string REGISTER_PREFIX = "/ndn/edu/ucla/remap/ndnfit/dsu/register/org/openmhealth";
         static const std::string CONFIRM_PREFIX_FOR_REPLY = "/ndn/edu/ucla/remap/ndnfit/dsu/confirm";
+        
+        static const time::system_clock::TimePoint
+        getRoundedTimeslot(const time::system_clock::TimePoint& timeslot) {
+            return time::fromUnixTimestamp(
+                                           (time::toUnixTimestamp(timeslot) / 3600000) * 3600000);
+        }
         
         class DSUsync : noncopyable
         {
@@ -33,10 +42,12 @@ namespace ndn {
             : m_face(m_ioService) // Create face with io_service object
             , tcp_connect_repo_for_put_data("localhost", "7376")
             , tcp_connect_repo_for_confirmation("localhost", "7376")
+            , tcp_connect_repo_for_local_check("localhost", "7376")
             , m_scheduler(m_ioService)
             {
                 tcp_connect_repo_for_put_data.connect(m_ioService, bind(&DSUsync::putinDataCallback, this, _1));
                 tcp_connect_repo_for_confirmation.connect(m_ioService, bind(&DSUsync::confirmationCallback, this, _1));
+                tcp_connect_repo_for_local_check.connect(m_ioService, bind(&DSUsync::localCheckCallback, this, _1));
             }
             
             void
@@ -75,22 +86,56 @@ namespace ndn {
                         
                         // Sign Data packet with default identity
                         m_keyChain.sign(*confirmationData);
-                        std::cout << ">> D: " << *confirmationData << std::endl;
+                        std::cout << "confirmationCallback sends out D: " << *confirmationData << std::endl;
                         m_face.put(*confirmationData);
                     }
                 }
                 return;
             }
+            
+            void localCheckCallback(const Block& wire) {
+                if (wire.type() == ndn::tlv::Data) {
+                    Data data(wire);
+                    // if the data packet is not there in the repo, send interest to the mobile device to fetch data
+                    if (data.getContent().value_size() == 0) {
+                        name::Component user_id = data.getName().get(2);
+                        
+                        std::map<name::Component, std::map<Name, int>>::iterator outer_it;
+                        outer_it = user_unretrieve_map.find(user_id);
+                        std::map<Name, int>::iterator inner_it;
+                        if (outer_it != user_unretrieve_map.end()) {
+                            inner_it = outer_it->second.find(data.getName());
+                            if (inner_it != outer_it->second.end()) {
+                                // the ckey catalog is hanlded before
+                                return;
+                            }
+                        }
+                        
+                        Interest ckeyCatalogInterest(data.getName());
+                        ckeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
+                        ckeyCatalogInterest.setMustBeFresh(true);
+                        m_face.expressInterest(ckeyCatalogInterest,
+                                               bind(&DSUsync::onCKeyCatalog, this, _1, _2),
+                                               bind(&DSUsync::onCkeyCatalogTimeout, this, _1));
+                        std::cout << "localCheckCallback sends I: " << ckeyCatalogInterest << std::endl;
+                        outer_it->second[ckeyCatalogInterest.getName()] = 0;
+                    }
+                }
+                return;
+            }
+            
             void putinDataCallback(const Block& wire) {
                 if (wire.type() == ndn::tlv::Data) {
                     Data data(wire);
                     // if the data packet is not there in the repo, send interest to get data
                     if(data.getContent().value_size() == 0) {
                         Interest datapointInterest(data.getName());
+                        datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
+                        datapointInterest.setMustBeFresh(true);
                         m_face.expressInterest(datapointInterest,
-                                               bind(&DSUsync::onDatapointData, this, _1, _2),
-                                               bind(&DSUsync::onDatapointTimeout, this, _1));
-                        std::cout << "Sending " << datapointInterest << std::endl;
+                                               bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
+                                               bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
+                        std::cout << "putinDataCallback sends I: " << datapointInterest << std::endl;
                         std::map<name::Component, std::map<Name, int>>::iterator it;
                         it = user_unretrieve_map.find(data.getName().get(2));
                         if (it != user_unretrieve_map.end()) {
@@ -100,6 +145,7 @@ namespace ndn {
                 }
                 return;
             }
+            /*
             void onUpdateInfoData(const Interest& interest, const Data& data)
             {
                 std::string content((char *)data.getContent().value(), data.getContent().value_size());
@@ -207,18 +253,19 @@ namespace ndn {
                     updateInfoRetry++;
                 }
                 inner_it->second = updateInfoRetry;
-            }
+            }*/
             
             void onCatalogData(const Interest& interest, const Data& data)
             {
                 std::string content((char *)data.getContent().value(), data.getContent().value_size());
+                std::cout << "onCatalogData receives D: " << data << std::endl;
                 std::cout << content << std::endl;
                 char buffer[data.getContent().value_size()+1];
                 std::strcpy(buffer, content.c_str());
                 rapidjson::Document document;
                 if (document.ParseInsitu<0>(buffer).HasParseError())
                 {
-                    std::cout << "Parsing " << data << " error!" << std::endl;
+                    std::cout << "onCatalogData Parsing " << data << " error!" << std::endl;
                 }
                 
                 name::Component user_id = interest.getName().get(2);
@@ -249,22 +296,46 @@ namespace ndn {
                 //parse the content and start to fetch the data points, see schema file for the details
                 const rapidjson::Value& list = document;
                 assert(list.IsArray());
+                time::system_clock::TimePoint lastCatalogTimestamp = time::fromIsoString(data.getName().get(-1).toUri());
+                //fetch c-key catalog
+                if(list.Size() > 0) {
+                    time::system_clock::TimePoint ckeyHour = getRoundedTimeslot(lastCatalogTimestamp);
+                    Interest ckeyCatalogInterest(data.getName().getPrefix(-2).append("C-KEY").append("catalog").append(time::toIsoString(ckeyHour)));
+                    tcp_connect_repo_for_local_check.send(ckeyCatalogInterest.wireEncode());
+                }
                 for (rapidjson::SizeType i = 0; i<list.Size(); i++) {
-                    assert(list[i].IsNumber());
-                    assert(list[i].IsUInt64());
+                    //assert(list[i].IsNumber());
+                    //assert(list[i].IsUInt64());
+                    assert(list[i].IsString());
                     
                     //std::cout << list[i].GetUint64() << std::endl;
                     // send out datapoints interest
-                    Interest datapointInterest(interest.getName().getPrefix(-3).appendTimestamp(time::fromUnixTimestamp(time::milliseconds(list[i].GetUint64()/1000))));
+                    //Interest datapointInterest(data.getName().getPrefix(-2).appendTimestamp(time::fromUnixTimestamp(time::milliseconds(list[i].GetUint64()/1000))));
+                    Interest datapointInterest(data.getName().getPrefix(-2).append(list[i].GetString()));
                     datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                     datapointInterest.setMustBeFresh(true);
-                    tcp_connect_repo_for_put_data.send(datapointInterest.wireEncode());
-                    //                    m_face.expressInterest(datapointInterest,
-                    //                                           bind(&DSUsync::onDatapointData, this, _1, _2),
-                    //                                           bind(&DSUsync::onDatapointTimeout, this, _1));
-                    //                    std::cout << "Sending " << datapointInterest << std::endl;
-                    //                    outer_it->second[datapointInterest.getName()] = 0;
+                    
+                    //tcp_connect_repo_for_put_data.send(datapointInterest.wireEncode());
+                    m_face.expressInterest(datapointInterest,
+                                                        bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
+                                                        bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
+                    std::cout << "onCatalogData sends I: " << datapointInterest << std::endl;
+                    outer_it->second[datapointInterest.getName()] = 0;
                 }
+                
+                // continue to fetch the next catalog packet
+                
+                //time::system_clock::TimePoint lastCatalogTimestamp = time::fromIsoString(data.getName().get(-1).toUri());
+                Interest catalogInterest(data.getName().getPrefix(-1).append(time::toIsoString(lastCatalogTimestamp + time::minutes(2))));
+                catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
+                catalogInterest.setMustBeFresh(true);
+                m_face.expressInterest(catalogInterest,
+                                       bind(&DSUsync::onCatalogData, this, _1, _2),
+                                       bind(&DSUsync::onCatalogTimeout, this, _1));
+                std::cout << "onCatalogData sends I: " << catalogInterest << std::endl;
+                //                unretrieveMap.insert(std::pair<Name, int>(updateInfoInterest.getName(), 0));
+                outer_it->second[catalogInterest.getName()] = 0;
+                
                 
             }
             
@@ -287,8 +358,8 @@ namespace ndn {
                 }
                 
                 int catalogRetry = inner_it->second;
-                if(catalogRetry == 3) {
-                    std::cout << "Timeout " << interest << std::endl;
+                if(catalogRetry == INT_MAX) {
+                    std::cout << "onCatalogTimeout Timeout I: " << interest << std::endl;
                     catalogRetry = 0;
                 } else {
                     Name previousName = interest.getName();
@@ -298,24 +369,25 @@ namespace ndn {
                     m_face.expressInterest(catalogInterest,
                                            bind(&DSUsync::onCatalogData, this, _1, _2),
                                            bind(&DSUsync::onCatalogTimeout, this, _1));
-                    std::cout << "Sending " << catalogInterest << std::endl;
+                    std::cout << "onCatalogTimeout sends I: " << catalogInterest << std::endl;
                     catalogRetry++;
                 }
                 inner_it->second = catalogRetry;
             }
             
-            void onDatapointData(const Interest& interest, const Data& data)
+            void onDatapointOrCKeyData(const Interest& interest, const Data& data)
             {
                 std::string content((char *)data.getContent().value(), data.getContent().value_size());
                 std::cout << content << std::endl;
                 // to correctly parse the JSON, the '\0' should be included.
-                char buffer[data.getContent().value_size()+1];
-                std::strcpy(buffer, content.c_str());
-                rapidjson::Document document;
-                if (document.ParseInsitu<0>(buffer).HasParseError())
-                {
-                    std::cout << "Parsing " << data << " error!" << std::endl;
-                }
+                //char buffer[data.getContent().value_size()+1];
+                //std::strcpy(buffer, content.c_str());
+                //rapidjson::Document document;
+                
+                //if (document.ParseInsitu<0>(buffer).HasParseError())
+                //{
+                //    std::cout << "onDatapointData Parsing " << data << " error!" << std::endl;
+                //}
                 
                 name::Component user_id = interest.getName().get(2);
                 
@@ -344,7 +416,7 @@ namespace ndn {
                 
             }
             
-            void onDatapointTimeout (const Interest& interest)
+            void onDatapointOrCKeyTimeout (const Interest& interest)
             {
                 name::Component user_id = interest.getName().get(2);
                 
@@ -364,7 +436,7 @@ namespace ndn {
                 
                 int datapointRetry = inner_it->second;
                 if(datapointRetry == 3) {
-                    std::cout << "Timeout " << interest << std::endl;
+                    std::cout << "onDatapointTimeout Timeout I: " << interest << std::endl;
                     datapointRetry = 0;
                 } else {
                     Name previousName = interest.getName();
@@ -372,18 +444,103 @@ namespace ndn {
                     datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                     datapointInterest.setMustBeFresh(true);
                     m_face.expressInterest(datapointInterest,
-                                           bind(&DSUsync::onDatapointData, this, _1, _2),
-                                           bind(&DSUsync::onDatapointTimeout, this, _1));
-                    std::cout << "Sending " << datapointInterest << std::endl;
+                                           bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
+                                           bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
+                    std::cout << "onDatapointTimeout sending I: " << datapointInterest << std::endl;
                     datapointRetry++;
                 }
                 inner_it->second = datapointRetry;
             }
             
+            void onCKeyCatalog (const Interest& interest, const Data& data)
+            {
+                std::string content((char *)data.getContent().value(), data.getContent().value_size());
+                std::cout << "onCKeyCatalog receives D: " << data << std::endl;
+                std::cout << content << std::endl;
+                char buffer[data.getContent().value_size()+1];
+                std::strcpy(buffer, content.c_str());
+                rapidjson::Document document;
+                if (document.ParseInsitu<0>(buffer).HasParseError())
+                {
+                    std::cout << "onCKeyCatalog Parsing " << data << " error!" << std::endl;
+                }
+                
+                name::Component user_id = interest.getName().get(2);
+                
+                std::map<name::Component, std::map<Name, int>>::iterator outer_it;
+                outer_it = user_unretrieve_map.find(user_id);
+                std::map<Name, int>::iterator inner_it;
+                if (outer_it != user_unretrieve_map.end()) {
+                    inner_it = outer_it->second.find(interest.getName());
+                    if (inner_it != outer_it->second.end()) {
+                        outer_it->second.erase(inner_it);
+                    }
+                } else {
+                    //figure out what to do here
+                    return;
+                }
+                
+                //put data into repo
+                tcp_connect_repo_for_put_data.send(data.wireEncode());
+            
+                //parse the content and start to fetch the data points, see schema file for the details
+                const rapidjson::Value& list = document;
+                assert(list.IsArray());
+                for (rapidjson::SizeType i = 0; i<list.Size(); i++) {
+                    assert(list[i].IsString());
+                    //send out ckey insterest
+                    Interest ckeyInterest(Name(list[i].GetString()));
+                    ckeyInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
+                    ckeyInterest.setMustBeFresh(true);
+                
+                    //tcp_connect_repo_for_put_data.send(datapointInterest.wireEncode());
+                    m_face.expressInterest(ckeyInterest,
+                                       bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
+                                       bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
+                    std::cout << "onCKeyCatalog send I: " << ckeyInterest << std::endl;
+                    outer_it->second[ckeyInterest.getName()] = 0;
+                }
+            }
+            
+            void onCkeyCatalogTimeout(const Interest& interest) {
+                name::Component user_id = interest.getName().get(2);
+                
+                std::map<name::Component, std::map<Name, int>>::iterator outer_it;
+                outer_it = user_unretrieve_map.find(user_id);
+                std::map<Name, int>::iterator inner_it;
+                if (outer_it != user_unretrieve_map.end()) {
+                    inner_it = outer_it->second.find(interest.getName());
+                    if (inner_it == outer_it->second.end()) {
+                        std::cout << "I didn't try to retrieve " << interest << std::endl;
+                        return;
+                    }
+                } else {
+                    //figure out what to do here
+                    return;
+                }
+                
+                int ckeyCatalogRetry = inner_it->second;
+                if(ckeyCatalogRetry == 3) {
+                    std::cout << "onCkeyCatalogTimeout Timeout I: " << interest << std::endl;
+                    ckeyCatalogRetry = 0;
+                } else {
+                    Name previousName = interest.getName();
+                    Interest ckeyCatalogInterest(interest.getName());
+                    ckeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
+                    ckeyCatalogInterest.setMustBeFresh(true);
+                    m_face.expressInterest(ckeyCatalogInterest,
+                                           bind(&DSUsync::onCKeyCatalog, this, _1, _2),
+                                           bind(&DSUsync::onCkeyCatalogTimeout, this, _1));
+                    std::cout << "onCkeyCatalogTimeout sending I: " << ckeyCatalogInterest << std::endl;
+                    ckeyCatalogRetry++;
+                }
+                inner_it->second = ckeyCatalogRetry;
+            }
+            
             void
             onConfirmInterest(const InterestFilter& filter, const Interest& interest)
             {
-                std::cout << "<< I: " << interest << std::endl;
+                std::cout << "onConfirmInterest receives I: " << interest << std::endl;
                 
                 Interest dataInterest(interest.getName().getSubName(7));
                 
@@ -418,7 +575,7 @@ namespace ndn {
             void
             onRegisterInterest(const InterestFilter& filter, const Interest& interest)
             {
-                std::cout << "<< I: " << interest << std::endl;
+                std::cout << "onRegisterInterest receives I: " << interest << std::endl;
                 Name registerSuccessDataName(interest.getName());
                 name::Component user_id = registerSuccessDataName.get(9);
                 
@@ -437,38 +594,47 @@ namespace ndn {
 //                                                   bind(&DSUsync::onUpdateInfoTimeout, this, _1));
 //                            
 //                        } else
-                        if(keyComp == CATALOG_COMP) {
-                            m_face.expressInterest(resentInterest,
-                                                   bind(&DSUsync::onCatalogData, this, _1, _2),
-                                                   bind(&DSUsync::onCatalogTimeout, this, _1));
-                        } else {
-                            m_face.expressInterest(resentInterest,
-                                                   bind(&DSUsync::onDatapointData, this, _1, _2),
-                                                   bind(&DSUsync::onDatapointTimeout, this, _1));
+                        if (keyComp == CKEY_COMP) {
+                            name::Component key2Comp = inner_it->first.get(8);
+                            if (key2Comp == CATALOG_COMP) {
+                                m_face.expressInterest(resentInterest,
+                                                       bind(&DSUsync::onCKeyCatalog, this, _1, _2),
+                                                       bind(&DSUsync::onCkeyCatalogTimeout, this, _1));
+                            }
+                            else {
+                                m_face.expressInterest(resentInterest,
+                                                       bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
+                                                       bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
+                            }
                         }
-                        std::cout << "Sending " << resentInterest << std::endl;
+                        else if(keyComp != CATALOG_COMP) {
+                            m_face.expressInterest(resentInterest,
+                                                   bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
+                                                   bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
+                        }
+                        std::cout << "onRegisterInterest sends I: " << resentInterest << std::endl;
                     }
                 } else {
-                    //send out update information interest
-                    Interest updateInfoInterest(Name(COMMON_PREFIX).append(user_id).append(Name(UPDATE_INFO_SUFFIX)).appendSequenceNumber(1));
-                    updateInfoInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
-                    updateInfoInterest.setMustBeFresh(true);
-                    m_face.expressInterest(updateInfoInterest,
-                                           bind(&DSUsync::onUpdateInfoData, this, _1, _2),
-                                           bind(&DSUsync::onUpdateInfoTimeout, this, _1));
-                    std::cout << "Sending " << updateInfoInterest << std::endl;
+                    //send out catalog interest
+                    Interest catalogInterest(Name(COMMON_PREFIX).append(user_id).append(Name(CATALOG_SUFFIX)));
+                    catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
+                    catalogInterest.setMustBeFresh(true);
+                    m_face.expressInterest(catalogInterest,
+                                           bind(&DSUsync::onCatalogData, this, _1, _2),
+                                           bind(&DSUsync::onCatalogTimeout, this, _1));
+                    std::cout << "onRegisterInterest sends I: " << catalogInterest << std::endl;
                     
                     std::map<Name, int> unretrieve_map;
-                    unretrieve_map[updateInfoInterest.getName()] = 0;
+                    unretrieve_map[catalogInterest.getName()] = 0;
                     user_unretrieve_map[user_id] = unretrieve_map;
                     
                     std::map<name::Component, std::map<Name, int>>::iterator outer_it;
                     outer_it = user_unretrieve_map.find(user_id);
                     std::map<Name, int>::iterator inner_it;
                     if (outer_it != user_unretrieve_map.end()) {
-                        inner_it = outer_it->second.find(updateInfoInterest.getName());
+                        inner_it = outer_it->second.find(catalogInterest.getName());
                         if (inner_it == outer_it->second.end()) {
-                            std::cout << "check if the interest is there " << updateInfoInterest << std::endl;
+                            std::cout << "check if the interest is there " << catalogInterest << std::endl;
                             return;
                         }
                     }
@@ -482,7 +648,7 @@ namespace ndn {
                 data->setFreshnessPeriod(time::seconds(10));
                 // Sign Data packet with default identity
                 m_keyChain.sign(*data);
-                std::cout << ">> D: " << *data << std::endl;
+                std::cout << "onRegisterInterest sends D: " << *data << std::endl;
                 m_face.put(*data);
                 
             }
@@ -501,6 +667,7 @@ namespace ndn {
             Face m_face;
             TcpTransport tcp_connect_repo_for_put_data;
             TcpTransport tcp_connect_repo_for_confirmation;
+            TcpTransport tcp_connect_repo_for_local_check;
             Scheduler m_scheduler;
             std::map<name::Component, std::map<Name, int>> user_unretrieve_map;
 //            std::map<name::Component, std::set<Name>> user_confirm_map;
