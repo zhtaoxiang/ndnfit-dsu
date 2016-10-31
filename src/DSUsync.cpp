@@ -114,9 +114,16 @@ namespace ndn {
                         Interest ckeyCatalogInterest(data.getName());
                         ckeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                         ckeyCatalogInterest.setMustBeFresh(true);
+                        std::map<name::Component, Link>::iterator link_iterator;
+                        link_iterator = user_link_map.find(ckeyCatalogInterest.getName().get(2));
+                        if (link_iterator != user_link_map.end()) {
+                            Link link = link_iterator->second;
+                            ckeyCatalogInterest.setLink(link.wireEncode());
+                        }
                         m_face.expressInterest(ckeyCatalogInterest,
                                                bind(&DSUsync::onCKeyCatalog, this, _1, _2),
                                                bind(&DSUsync::onCkeyCatalogTimeout, this, _1));
+                        
                         std::cout << "localCheckCallback sends I: " << ckeyCatalogInterest << std::endl;
                         outer_it->second[ckeyCatalogInterest.getName()] = 0;
                     }
@@ -132,9 +139,16 @@ namespace ndn {
                         Interest datapointInterest(data.getName());
                         datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                         datapointInterest.setMustBeFresh(true);
+                        std::map<name::Component, Link>::iterator link_iterator;
+                        link_iterator = user_link_map.find(datapointInterest.getName().get(2));
+                        if (link_iterator != user_link_map.end()) {
+                            Link link = link_iterator->second;
+                            datapointInterest.setLink(link.wireEncode());
+                        }
                         m_face.expressInterest(datapointInterest,
                                                bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
                                                bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
+                        
                         std::cout << "putinDataCallback sends I: " << datapointInterest << std::endl;
                         std::map<name::Component, std::map<Name, int>>::iterator it;
                         it = user_unretrieve_map.find(data.getName().get(2));
@@ -314,6 +328,12 @@ namespace ndn {
                     Interest datapointInterest(data.getName().getPrefix(-2).append(list[i].GetString()));
                     datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                     datapointInterest.setMustBeFresh(true);
+                    std::map<name::Component, Link>::iterator link_iterator;
+                    link_iterator = user_link_map.find(datapointInterest.getName().get(2));
+                    if (link_iterator != user_link_map.end()) {
+                        Link link = link_iterator->second;
+                        datapointInterest.setLink(link.wireEncode());
+                    }
                     
                     //tcp_connect_repo_for_put_data.send(datapointInterest.wireEncode());
                     m_face.expressInterest(datapointInterest,
@@ -329,6 +349,12 @@ namespace ndn {
                 Interest catalogInterest(data.getName().getPrefix(-1).append(time::toIsoString(lastCatalogTimestamp + time::minutes(2))));
                 catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                 catalogInterest.setMustBeFresh(true);
+                std::map<name::Component, Link>::iterator link_iterator;
+                link_iterator = user_link_map.find(catalogInterest.getName().get(2));
+                if (link_iterator != user_link_map.end()) {
+                    Link link = link_iterator->second;
+                    catalogInterest.setLink(link.wireEncode());
+                }
                 m_face.expressInterest(catalogInterest,
                                        bind(&DSUsync::onCatalogData, this, _1, _2),
                                        bind(&DSUsync::onCatalogTimeout, this, _1));
@@ -366,6 +392,12 @@ namespace ndn {
                     Interest catalogInterest(interest.getName());
                     catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                     catalogInterest.setMustBeFresh(true);
+                    std::map<name::Component, Link>::iterator link_iterator;
+                    link_iterator = user_link_map.find(catalogInterest.getName().get(2));
+                    if (link_iterator != user_link_map.end()) {
+                        Link link = link_iterator->second;
+                        catalogInterest.setLink(link.wireEncode());
+                    }
                     m_face.expressInterest(catalogInterest,
                                            bind(&DSUsync::onCatalogData, this, _1, _2),
                                            bind(&DSUsync::onCatalogTimeout, this, _1));
@@ -443,6 +475,12 @@ namespace ndn {
                     Interest datapointInterest(interest.getName());
                     datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                     datapointInterest.setMustBeFresh(true);
+                    std::map<name::Component, Link>::iterator link_iterator;
+                    link_iterator = user_link_map.find(datapointInterest.getName().get(2));
+                    if (link_iterator != user_link_map.end()) {
+                        Link link = link_iterator->second;
+                        datapointInterest.setLink(link.wireEncode());
+                    }
                     m_face.expressInterest(datapointInterest,
                                            bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
                                            bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
@@ -492,6 +530,12 @@ namespace ndn {
                     Interest ckeyInterest(Name(list[i].GetString()));
                     ckeyInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                     ckeyInterest.setMustBeFresh(true);
+                    std::map<name::Component, Link>::iterator link_iterator;
+                    link_iterator = user_link_map.find(ckeyInterest.getName().get(2));
+                    if (link_iterator != user_link_map.end()) {
+                        Link link = link_iterator->second;
+                        ckeyInterest.setLink(link.wireEncode());
+                    }
                 
                     //tcp_connect_repo_for_put_data.send(datapointInterest.wireEncode());
                     m_face.expressInterest(ckeyInterest,
@@ -528,6 +572,12 @@ namespace ndn {
                     Interest ckeyCatalogInterest(interest.getName());
                     ckeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                     ckeyCatalogInterest.setMustBeFresh(true);
+                    std::map<name::Component, Link>::iterator link_iterator;
+                    link_iterator = user_link_map.find(ckeyCatalogInterest.getName().get(2));
+                    if (link_iterator != user_link_map.end()) {
+                        Link link = link_iterator->second;
+                        ckeyCatalogInterest.setLink(link.wireEncode());
+                    }
                     m_face.expressInterest(ckeyCatalogInterest,
                                            bind(&DSUsync::onCKeyCatalog, this, _1, _2),
                                            bind(&DSUsync::onCkeyCatalogTimeout, this, _1));
@@ -579,6 +629,11 @@ namespace ndn {
                 Name registerSuccessDataName(interest.getName());
                 name::Component user_id = registerSuccessDataName.get(9);
                 
+                Link link;
+                link.wireDecode(interest.getName().get(-1).blockFromValue());
+                std::cout << "onRegisterInterest got link: " << link << std::endl;
+                user_link_map[user_id] = link;
+                
                 std::map<name::Component, std::map<Name, int>>::iterator it;
                 it = user_unretrieve_map.find(user_id);
                 if (it != user_unretrieve_map.end()) {
@@ -587,6 +642,7 @@ namespace ndn {
                         Interest resentInterest(inner_it->first);
                         resentInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                         resentInterest.setMustBeFresh(true);
+                        resentInterest.setLink(link.wireEncode());
                         // since the same update information interest keeps being sent, so we do not need to do the following part
 //                        if (keyComp == UPDATA_INFO_COMP) {
 //                            m_face.expressInterest(resentInterest,
@@ -619,6 +675,7 @@ namespace ndn {
                     Interest catalogInterest(Name(COMMON_PREFIX).append(user_id).append(Name(CATALOG_SUFFIX)));
                     catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                     catalogInterest.setMustBeFresh(true);
+                    catalogInterest.setLink(link.wireEncode());
                     m_face.expressInterest(catalogInterest,
                                            bind(&DSUsync::onCatalogData, this, _1, _2),
                                            bind(&DSUsync::onCatalogTimeout, this, _1));
@@ -671,6 +728,7 @@ namespace ndn {
             Scheduler m_scheduler;
             std::map<name::Component, std::map<Name, int>> user_unretrieve_map;
 //            std::map<name::Component, std::set<Name>> user_confirm_map;
+            std::map<name::Component, Link> user_link_map;
             KeyChain m_keyChain;
         };
         
