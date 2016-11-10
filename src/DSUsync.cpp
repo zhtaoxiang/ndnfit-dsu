@@ -48,6 +48,7 @@ namespace ndn {
                 tcp_connect_repo_for_put_data.connect(m_ioService, bind(&DSUsync::putinDataCallback, this, _1));
                 tcp_connect_repo_for_confirmation.connect(m_ioService, bind(&DSUsync::confirmationCallback, this, _1));
                 tcp_connect_repo_for_local_check.connect(m_ioService, bind(&DSUsync::localCheckCallback, this, _1));
+                fileToMap("state", user_unretrieve_map);
             }
             
             ~DSUsync() {
