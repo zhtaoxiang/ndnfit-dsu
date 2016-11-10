@@ -10,6 +10,12 @@
 #include <rapidjson/prettywriter.h>	// for stringify JSON
 #include <rapidjson/filestream.h>	// wrapper of C stream for prettywriter as output
 #include <cstdio>
+#include <signal.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+
+#include "helper.hpp"
 
 namespace ndn {
     namespace dsu {
@@ -29,12 +35,6 @@ namespace ndn {
         static const std::string REGISTER_PREFIX = "/ndn/edu/ucla/remap/ndnfit/dsu/register/org/openmhealth";
         static const std::string CONFIRM_PREFIX_FOR_REPLY = "/ndn/edu/ucla/remap/ndnfit/dsu/confirm";
         
-        static const time::system_clock::TimePoint
-        getRoundedTimeslot(const time::system_clock::TimePoint& timeslot) {
-            return time::fromUnixTimestamp(
-                                           (time::toUnixTimestamp(timeslot) / 3600000) * 3600000);
-        }
-        
         class DSUsync : noncopyable
         {
         public:
@@ -48,6 +48,15 @@ namespace ndn {
                 tcp_connect_repo_for_put_data.connect(m_ioService, bind(&DSUsync::putinDataCallback, this, _1));
                 tcp_connect_repo_for_confirmation.connect(m_ioService, bind(&DSUsync::confirmationCallback, this, _1));
                 tcp_connect_repo_for_local_check.connect(m_ioService, bind(&DSUsync::localCheckCallback, this, _1));
+            }
+            
+            ~DSUsync() {
+                saveStateToFile();
+            }
+            
+            void saveStateToFile() {
+                mapToFile("state", user_unretrieve_map);
+                std::cout << "save state to file" << std::endl;
             }
             
             void
@@ -679,10 +688,30 @@ namespace ndn {
     } // namespace dsu
 } // namespace ndn
 
+ndn::dsu::DSUsync dsusync;
+
+void my_handler(int s){
+    printf("Caught signal %d\n",s);
+    exit(1);
+}
+
 int
 main(int argc, char** argv)
 {
-    ndn::dsu::DSUsync dsusync;
+    struct sigaction sigIntHandler;
+    
+    sigIntHandler.sa_handler = my_handler;
+    sigemptyset(&sigIntHandler.sa_mask);
+    sigIntHandler.sa_flags = 0;
+    
+    sigaction(SIGINT, &sigIntHandler, NULL);
+    
+    /* this is a test to see if "save state to file" works or not
+    std::map<ndn::name::Component, std::map<ndn::Name, int>> user_unretrieve_map;
+    ndn::dsu::fileToMap("a", user_unretrieve_map);
+    ndn::dsu::mapToFile("b", user_unretrieve_map);
+    */
+    
     try {
         dsusync.run();
     }
