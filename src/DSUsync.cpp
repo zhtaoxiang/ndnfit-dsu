@@ -63,7 +63,9 @@ namespace ndn {
             void
             run()
             {
-                
+/*                Interest interest(Name("/org/openmhealth/haitao/SAMPLE/fitness/physical_activity/time_location/catalog/20170313T090200"));
+                tcp_connect_repo_for_confirmation.send(interest.wireEncode());              
+*/
                 //accept incoming confirm interest
                 m_face.setInterestFilter(CONFIRM_PREFIX,
                                          bind(&DSUsync::onConfirmInterest, this, _1, _2),
@@ -86,6 +88,7 @@ namespace ndn {
             
         private:
             void confirmationCallback(const Block& wire) {
+                std::cout << "confirmationCallback is called" << std::endl;
                 if (wire.type() == ndn::tlv::Data) {
                     Data data(wire);
                     // if the data packet is there in the repo, send confirmation to the mobile device
@@ -336,7 +339,16 @@ namespace ndn {
                 // continue to fetch the next catalog packet
                 
                 //time::system_clock::TimePoint lastCatalogTimestamp = time::fromIsoString(data.getName().get(-1).toUri());
-                Interest catalogInterest(data.getName().getPrefix(-1).append(time::toIsoString(lastCatalogTimestamp + time::minutes(2))));
+                // the previous one assumes that all the catalogs exist
+                 Interest catalogInterest(data.getName().getPrefix(-1).append(time::toIsoString(lastCatalogTimestamp + time::minutes(2))));
+                
+                // the new one uses excluder
+                /* Interest catalogInterest(data.getName());
+                 Exclude excluder;
+                 name::Component lastTimestamp = data.getName().get(-1);
+                 excluder.excludeBefore(lastTimestamp);
+                 catalogInterest.setExclude(excluder);
+                */
                 catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                 catalogInterest.setMustBeFresh(true);
                 m_face.expressInterest(catalogInterest,
@@ -554,6 +566,7 @@ namespace ndn {
                 
                 Interest dataInterest(interest.getName().getSubName(7));
                 
+                std::cout << "onConfirmInterest sends I to repo:" << dataInterest << std::endl;
                 tcp_connect_repo_for_confirmation.send(dataInterest.wireEncode());
                 
                 // Create new name, based on Interest's name
