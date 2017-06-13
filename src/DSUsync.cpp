@@ -315,6 +315,11 @@ namespace ndn {
                     time::system_clock::TimePoint ckeyHour = getRoundedTimeslot(lastCatalogTimestamp);
                     Interest ckeyCatalogInterest(data.getName().getPrefix(-2).append("C-KEY").append("catalog").append(time::toIsoString(ckeyHour)));
                     tcp_connect_repo_for_local_check.send(ckeyCatalogInterest.wireEncode());
+                        ckeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
+                        ckeyCatalogInterest.setMustBeFresh(true);
+                        m_face.expressInterest(ckeyCatalogInterest,
+                                               bind(&DSUsync::onCKeyCatalog, this, _1, _2),
+                                               bind(&DSUsync::onCkeyCatalogTimeout, this, _1));
                 }
                 for (rapidjson::SizeType i = 0; i<list.Size(); i++) {
                     //assert(list[i].IsNumber());
@@ -639,7 +644,13 @@ namespace ndn {
                     }
                 } else {
                     //send out catalog interest
-                    Interest catalogInterest(Name(COMMON_PREFIX).append(user_id).append(Name(CATALOG_SUFFIX)));
+                    Name catalogName(COMMON_PREFIX);
+                    catalogName.append(user_id).append(Name(CATALOG_SUFFIX));
+                    if(registerSuccessDataName.size() > 10) {
+                        name::Component timestamp = registerSuccessDataName.get(10);
+                        catalogName.append(timestamp);
+                    }
+                    Interest catalogInterest(catalogName);
                     catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
                     catalogInterest.setMustBeFresh(true);
                     m_face.expressInterest(catalogInterest,
