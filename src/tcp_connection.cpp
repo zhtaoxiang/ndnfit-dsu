@@ -5,8 +5,7 @@ namespace ndn {
   namespace dsu {
     void
     TcpConnection::handleReceive(const boost::system::error_code& error,
-                                 std::size_t nBytesReceived,
-                                 const shared_ptr<TcpConnection>& client)
+                                 std::size_t nBytesReceived)
     {
       if (error)
       {
@@ -45,6 +44,7 @@ namespace ndn {
              else
              std::cerr << "FAILED to inject " << data.getName() << std::endl;
              */
+            m_receiveCallback(element);
           }
           catch (const std::runtime_error& error) {
             /// \todo Catch specific error after determining what wireDecode() can throw
@@ -78,7 +78,7 @@ namespace ndn {
       m_socket.async_receive(boost::asio::buffer(m_inputBuffer + m_inputBufferSize,
                                                   MAX_NDN_PACKET_SIZE - m_inputBufferSize), 0,
                               bind(&TcpConnection::handleReceive, this, std::placeholders::_1,
-                                   std::placeholders::_2, client));
+                                   std::placeholders::_2));
     }
     
     void
@@ -114,7 +114,7 @@ namespace ndn {
     }
     
     void
-    TcpConnection::send(Block& block)
+    TcpConnection::send(const Block& block)
     {
       m_blockQueue.push_back(block);
       if (m_blockQueue.size() == 1) {

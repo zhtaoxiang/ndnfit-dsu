@@ -28,30 +28,29 @@ namespace ndn {
         connect(ioService, host, port);
       }
       
-      static void
-      startReceive(const std::shared_ptr<TcpConnection>& client)
+      void
+      startReceive()
       {
-        BOOST_ASSERT(!client->m_hasStarted);
+        BOOST_ASSERT(m_hasStarted);
         
-        client->m_socket.async_receive(
-                                        boost::asio::buffer(client->m_inputBuffer, MAX_NDN_PACKET_SIZE), 0,
-                                        bind(&TcpConnection::handleReceive, client, std::placeholders::_1,
-                                             std::placeholders::_2, client));
+        m_socket.async_receive(
+                                        boost::asio::buffer(m_inputBuffer, MAX_NDN_PACKET_SIZE), 0,
+                                        bind(&TcpConnection::handleReceive, this, std::placeholders::_1,
+                                             std::placeholders::_2));
         
-        client->m_hasStarted = true;
+        m_hasStarted = true;
       }
       
       
       void
       onSuccessfullConnect(const boost::system::error_code& error);
       
-      void send(Block& block);
+      void send(const Block& block);
       
     private:
       void
       handleReceive(const boost::system::error_code& error,
-                    std::size_t nBytesReceived,
-                    const std::shared_ptr<TcpConnection>& client);
+                    std::size_t nBytesReceived);
       
       void
       connect(boost::asio::io_service& ioService, const std::string& host, const std::string& port);

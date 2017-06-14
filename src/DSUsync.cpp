@@ -5,7 +5,6 @@
 #include <ndn-cxx/util/time.hpp>
 #include <ndn-group-encrypt/schedule.hpp>
 //#include <mysql++/query.h>
-#include <ndn-cxx/transport/tcp-transport.hpp>
 #include <rapidjson/document.h>		// rapidjson's DOM-style API
 #include <rapidjson/prettywriter.h>	// for stringify JSON
 #include <rapidjson/filestream.h>	// wrapper of C stream for prettywriter as output
@@ -41,14 +40,14 @@ namespace ndn {
     public:
       DSUsync()
       : m_face(m_ioService) // Create face with io_service object
-      , tcp_connect_repo_for_put_data("localhost", "7376")
-      , tcp_connect_repo_for_confirmation("localhost", "7376")
-      , tcp_connect_repo_for_local_check("localhost", "7376")
+      , tcp_connection_for_putting_data(m_ioService, "localhost", "7376", bind(&DSUsync::putinDataCallback, this, _1))
+      , tcp_connection_for_confirmation(m_ioService, "localhost", "7376", bind(&DSUsync::confirmationCallback, this, _1))
+      , tcp_connection_for_local_check(m_ioService, "localhost", "7376",  bind(&DSUsync::localCheckCallback, this, _1))
       , m_scheduler(m_ioService)
       {
-        tcp_connect_repo_for_put_data.connect(m_ioService, bind(&DSUsync::putinDataCallback, this, _1));
-        tcp_connect_repo_for_confirmation.connect(m_ioService, bind(&DSUsync::confirmationCallback, this, _1));
-        tcp_connect_repo_for_local_check.connect(m_ioService, bind(&DSUsync::localCheckCallback, this, _1));
+        tcp_connection_for_putting_data.startReceive();
+        tcp_connection_for_confirmation.startReceive();
+        tcp_connection_for_local_check.startReceive();
         fileToMap("state", user_unretrieve_map);
       }
       
@@ -64,9 +63,6 @@ namespace ndn {
       void
       run()
       {
-        /*                Interest interest(Name("/org/openmhealth/haitao/SAMPLE/fitness/physical_activity/time_location/catalog/20170313T090200"));
-         tcp_connect_repo_for_confirmation.send(interest.wireEncode());
-         */
         //accept incoming confirm interest
         m_face.setInterestFilter(CONFIRM_PREFIX,
                                  bind(&DSUsync::onConfirmInterest, this, _1, _2),
@@ -100,7 +96,7 @@ namespace ndn {
             
             // Sign Data packet with default identity
             m_keyChain.sign(*confirmationData);
-            std::cout << "confirmationCallback sends out D: " << *confirmationData << std::endl;
+            std::cout << "confirmationCallback sends out D: " << confirmationData->getName() << std::endl;
             m_face.put(*confirmationData);
           }
         }
@@ -163,14 +159,14 @@ namespace ndn {
       void onCatalogData(const Interest& interest, const Data& data)
       {
         std::string content((char *)data.getContent().value(), data.getContent().value_size());
-        std::cout << "onCatalogData receives D: " << data << std::endl;
+        std::cout << "onCatalogData receives D: " << data.getName() << std::endl;
         std::cout << content << std::endl;
         char buffer[data.getContent().value_size()+1];
         std::strcpy(buffer, content.c_str());
         rapidjson::Document document;
         if (document.ParseInsitu<0>(buffer).HasParseError())
         {
-          std::cout << "onCatalogData Parsing " << data << " error!" << std::endl;
+          std::cout << "onCatalogData Parsing " << data.getName() << " error!" << std::endl;
         }
         
         name::Component user_id = interest.getName().get(2);
@@ -188,15 +184,8 @@ namespace ndn {
           return;
         }
         
-        // add into confirm set
-        //                std::map<name::Component, std::set<Name>>::iterator it_confirm;
-        //                it_confirm = user_confirm_map.find(user_id);
-        //                if (it_confirm != user_confirm_map.end()) {
-        //                    it_confirm->second.insert(interest.getName());
-        //                }
-        
         //put data into repo
-        tcp_connect_repo_for_put_data.send(data.wireEncode());
+        tcp_connection_for_putting_data.send(data.wireEncode());
         
         //parse the content and start to fetch the data points, see schema file for the details
         const rapidjson::Value& list = document;
@@ -206,7 +195,7 @@ namespace ndn {
         if(list.Size() > 0) {
           time::system_clock::TimePoint ckeyHour = getRoundedTimeslot(lastCatalogTimestamp);
           Interest ckeyCatalogInterest(data.getName().getPrefix(-2).append("C-KEY").append("catalog").append(time::toIsoString(ckeyHour)));
-          tcp_connect_repo_for_local_check.send(ckeyCatalogInterest.wireEncode());
+          tcp_connection_for_local_check.send(ckeyCatalogInterest.wireEncode());
           ckeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           ckeyCatalogInterest.setMustBeFresh(true);
           m_face.expressInterest(ckeyCatalogInterest,
@@ -214,48 +203,18 @@ namespace ndn {
                                  bind(&DSUsync::onCkeyCatalogTimeout, this, _1));
         }
         for (rapidjson::SizeType i = 0; i<list.Size(); i++) {
-          //assert(list[i].IsNumber());
-          //assert(list[i].IsUInt64());
           assert(list[i].IsString());
           
-          //std::cout << list[i].GetUint64() << std::endl;
-          // send out datapoints interest
-          //Interest datapointInterest(data.getName().getPrefix(-2).appendTimestamp(time::fromUnixTimestamp(time::milliseconds(list[i].GetUint64()/1000))));
           Interest datapointInterest(data.getName().getPrefix(-2).append(list[i].GetString()));
           datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           datapointInterest.setMustBeFresh(true);
           
-          //tcp_connect_repo_for_put_data.send(datapointInterest.wireEncode());
           m_face.expressInterest(datapointInterest,
                                  bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
                                  bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
           std::cout << "onCatalogData sends I: " << datapointInterest << std::endl;
           outer_it->second[datapointInterest.getName()] = 0;
         }
-        
-        // continue to fetch the next catalog packet
-        
-        //time::system_clock::TimePoint lastCatalogTimestamp = time::fromIsoString(data.getName().get(-1).toUri());
-        // the previous one assumes that all the catalogs exist
-        Interest catalogInterest(data.getName().getPrefix(-1).append(time::toIsoString(lastCatalogTimestamp + time::minutes(2))));
-        
-        // the new one uses excluder
-        /* Interest catalogInterest(data.getName());
-         Exclude excluder;
-         name::Component lastTimestamp = data.getName().get(-1);
-         excluder.excludeBefore(lastTimestamp);
-         catalogInterest.setExclude(excluder);
-         */
-        catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
-        catalogInterest.setMustBeFresh(true);
-        m_face.expressInterest(catalogInterest,
-                               bind(&DSUsync::onCatalogData, this, _1, _2),
-                               bind(&DSUsync::onCatalogTimeout, this, _1));
-        std::cout << "onCatalogData sends I: " << catalogInterest << std::endl;
-        //                unretrieveMap.insert(std::pair<Name, int>(updateInfoInterest.getName(), 0));
-        outer_it->second[catalogInterest.getName()] = 0;
-        
-        
       }
       
       void onCatalogTimeout (const Interest& interest)
@@ -298,15 +257,6 @@ namespace ndn {
       {
         std::string content((char *)data.getContent().value(), data.getContent().value_size());
         std::cout << content << std::endl;
-        // to correctly parse the JSON, the '\0' should be included.
-        //char buffer[data.getContent().value_size()+1];
-        //std::strcpy(buffer, content.c_str());
-        //rapidjson::Document document;
-        
-        //if (document.ParseInsitu<0>(buffer).HasParseError())
-        //{
-        //    std::cout << "onDatapointData Parsing " << data << " error!" << std::endl;
-        //}
         
         name::Component user_id = interest.getName().get(2);
         
@@ -323,15 +273,8 @@ namespace ndn {
           return;
         }
         
-        // add into confirm set
-        //                std::map<name::Component, std::set<Name>>::iterator it_confirm;
-        //                it_confirm = user_confirm_map.find(user_id);
-        //                if (it_confirm != user_confirm_map.end()) {
-        //                    it_confirm->second.insert(interest.getName());
-        //                }
-        
         //put data into repo
-        tcp_connect_repo_for_put_data.send(data.wireEncode());
+        tcp_connection_for_putting_data.send(data.wireEncode());
         
       }
       
@@ -374,14 +317,14 @@ namespace ndn {
       void onCKeyCatalog (const Interest& interest, const Data& data)
       {
         std::string content((char *)data.getContent().value(), data.getContent().value_size());
-        std::cout << "onCKeyCatalog receives D: " << data << std::endl;
+        std::cout << "onCKeyCatalog receives D: " << data.getName() << std::endl;
         std::cout << content << std::endl;
         char buffer[data.getContent().value_size()+1];
         std::strcpy(buffer, content.c_str());
         rapidjson::Document document;
         if (document.ParseInsitu<0>(buffer).HasParseError())
         {
-          std::cout << "onCKeyCatalog Parsing " << data << " error!" << std::endl;
+          std::cout << "onCKeyCatalog Parsing " << data.getName() << " error!" << std::endl;
         }
         
         name::Component user_id = interest.getName().get(2);
@@ -400,7 +343,7 @@ namespace ndn {
         }
         
         //put data into repo
-        tcp_connect_repo_for_put_data.send(data.wireEncode());
+        tcp_connection_for_putting_data.send(data.wireEncode());
         
         //parse the content and start to fetch the data points, see schema file for the details
         const rapidjson::Value& list = document;
@@ -412,7 +355,6 @@ namespace ndn {
           ckeyInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           ckeyInterest.setMustBeFresh(true);
           
-          //tcp_connect_repo_for_put_data.send(datapointInterest.wireEncode());
           m_face.expressInterest(ckeyInterest,
                                  bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
                                  bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
@@ -464,32 +406,7 @@ namespace ndn {
         Interest dataInterest(interest.getName().getSubName(7));
         
         std::cout << "onConfirmInterest sends I to repo:" << dataInterest << std::endl;
-        tcp_connect_repo_for_confirmation.send(dataInterest.wireEncode());
-        
-        // Create new name, based on Interest's name
-        //                Name confirmDataName(interest.getName());
-        //                name::Component user_id = confirmDataName.get(9);
-        //
-        //                std::map<name::Component, std::set<Name>>::iterator outer_it;
-        //                outer_it = user_confirm_map.find(user_id);
-        //                std::set<Name>::iterator inner_it;
-        //                if (outer_it != user_confirm_map.end()) {
-        //                    inner_it = outer_it->second.find(confirmDataName.getSubName(7));
-        //                    if (inner_it != outer_it->second.end()) {
-        //                        shared_ptr<Data> data = make_shared<Data>();
-        //                        data->setName(confirmDataName);
-        //                        data->setFreshnessPeriod(time::seconds(10));
-        //
-        //                        // Sign Data packet with default identity
-        //                        m_keyChain.sign(*data);
-        //                        std::cout << ">> D: " << *data << std::endl;
-        //                        m_face.put(*data);
-        //
-        //                        outer_it->second.erase(inner_it);
-        //                    }
-        //                } else {
-        //                    std::cout<< "I don't know the user " << user_id << std::endl;
-        //                }
+        tcp_connection_for_confirmation.send(dataInterest.wireEncode());
       }
       
       void
@@ -501,40 +418,6 @@ namespace ndn {
         
         std::map<name::Component, std::map<Name, int>>::iterator it;
         it = user_unretrieve_map.find(user_id);
-        if (it != user_unretrieve_map.end()) {
-          for (std::map<Name,int>::iterator inner_it=it->second.begin(); inner_it!=it->second.end(); ++inner_it) {
-            name::Component keyComp = inner_it->first.get(7);
-            Interest resentInterest(inner_it->first);
-            resentInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
-            resentInterest.setMustBeFresh(true);
-            // since the same update information interest keeps being sent, so we do not need to do the following part
-            //                        if (keyComp == UPDATA_INFO_COMP) {
-            //                            m_face.expressInterest(resentInterest,
-            //                                                   bind(&DSUsync::onUpdateInfoData, this, _1, _2),
-            //                                                   bind(&DSUsync::onUpdateInfoTimeout, this, _1));
-            //
-            //                        } else
-            if (keyComp == CKEY_COMP) {
-              name::Component key2Comp = inner_it->first.get(8);
-              if (key2Comp == CATALOG_COMP) {
-                m_face.expressInterest(resentInterest,
-                                       bind(&DSUsync::onCKeyCatalog, this, _1, _2),
-                                       bind(&DSUsync::onCkeyCatalogTimeout, this, _1));
-              }
-              else {
-                m_face.expressInterest(resentInterest,
-                                       bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
-                                       bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
-              }
-            }
-            else if(keyComp != CATALOG_COMP) {
-              m_face.expressInterest(resentInterest,
-                                     bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
-                                     bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
-            }
-            std::cout << "onRegisterInterest sends I: " << resentInterest << std::endl;
-          }
-        } else {
           //send out catalog interest
           Name catalogName(COMMON_PREFIX);
           catalogName.append(user_id).append(Name(CATALOG_SUFFIX));
@@ -564,17 +447,13 @@ namespace ndn {
               return;
             }
           }
-          
-          //                    std::set<Name> confirm_set;
-          //                    user_confirm_map[user_id] = confirm_set;
-        }
         
         shared_ptr<Data> data = make_shared<Data>();
         data->setName(registerSuccessDataName);
         data->setFreshnessPeriod(time::seconds(10));
         // Sign Data packet with default identity
         m_keyChain.sign(*data);
-        std::cout << "onRegisterInterest sends D: " << *data << std::endl;
+        std::cout << "onRegisterInterest sends D: " << data->getName() << std::endl;
         m_face.put(*data);
         
       }
@@ -591,12 +470,11 @@ namespace ndn {
       // Explicitly create io_service object, which can be shared between Face and Scheduler
       boost::asio::io_service m_ioService;
       Face m_face;
-      TcpTransport tcp_connect_repo_for_put_data;
-      TcpTransport tcp_connect_repo_for_confirmation;
-      TcpTransport tcp_connect_repo_for_local_check;
+      TcpConnection tcp_connection_for_putting_data;
+      TcpConnection tcp_connection_for_confirmation;
+      TcpConnection tcp_connection_for_local_check;
       Scheduler m_scheduler;
       std::map<name::Component, std::map<Name, int>> user_unretrieve_map;
-      //            std::map<name::Component, std::set<Name>> user_confirm_map;
       KeyChain m_keyChain;
     };
     
@@ -622,12 +500,6 @@ main(int argc, char** argv)
   sigIntHandler.sa_flags = 0;
   
   sigaction(SIGINT, &sigIntHandler, NULL);
-  
-  /* this is a test to see if "save state to file" works or not
-   std::map<ndn::name::Component, std::map<ndn::Name, int>> user_unretrieve_map;
-   ndn::dsu::fileToMap("a", user_unretrieve_map);
-   ndn::dsu::mapToFile("b", user_unretrieve_map);
-   */
   
   try {
     dsusync.run();
