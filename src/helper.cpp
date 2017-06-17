@@ -46,8 +46,9 @@ namespace ndn {
     {
       std::ofstream ofile;
       ofile.open(filename.c_str());
-      if(!ofile)
+      if(!ofile.is_open())
       {
+        std::cout << strerror(errno) << std::endl;
         return false;           //file does not exist and cannot be created.
       }
       for(idNameMap::const_iterator iter = fileMap.begin(); iter!=fileMap.end(); ++iter)
@@ -66,7 +67,7 @@ namespace ndn {
     {
       std::ifstream ifile;
       ifile.open(filename.c_str());
-      if(!ifile)
+      if(!ifile.is_open())
         return false;   //could not read the file.
       std::string line;
       name::Component id;
