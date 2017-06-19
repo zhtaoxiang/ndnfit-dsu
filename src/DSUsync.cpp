@@ -129,8 +129,8 @@ namespace ndn {
         return;
       }
       
-      /** 
-       * before fetch data, check 
+      /**
+       * before fetch data, check
        * (1) whether the data is in the repo or not
        * (2) whether the interst has been sent or not
        */
@@ -262,11 +262,11 @@ namespace ndn {
           Interest ckeyCatalogInterest(data.getName().getPrefix(-2).append("C-KEY").append("catalog").append(time::toIsoString(ckeyHour)));
           tcp_connection_for_local_check.send(ckeyCatalogInterest.wireEncode());
           /*
-          ckeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
-          ckeyCatalogInterest.setMustBeFresh(true);
-          m_face.expressInterest(ckeyCatalogInterest,
-                                 bind(&DSUsync::onCKeyCatalog, this, _1, _2),
-                                 bind(&DSUsync::onCkeyCatalogTimeout, this, _1));*/
+           ckeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
+           ckeyCatalogInterest.setMustBeFresh(true);
+           m_face.expressInterest(ckeyCatalogInterest,
+           bind(&DSUsync::onCKeyCatalog, this, _1, _2),
+           bind(&DSUsync::onCkeyCatalogTimeout, this, _1));*/
         }
         //fetch data
         
@@ -350,7 +350,7 @@ namespace ndn {
       void onDatapointOrCKeyData(const Interest& interest, const Data& data)
       {
         std::string content((char *)data.getContent().value(), data.getContent().value_size());
-//        std::cout << content << std::endl;
+        //        std::cout << content << std::endl;
         
         name::Component user_id = interest.getName().get(2);
         
@@ -418,7 +418,7 @@ namespace ndn {
       }
       
       /**
-       * upon receiving ckey catalog, continue to fetch 
+       * upon receiving ckey catalog, continue to fetch
        * (1) ckey
        * (2) e-key
        * (3) d-key catalog
@@ -591,7 +591,7 @@ namespace ndn {
           outer_it->second[dkeyInterest.getName()] = 0;
         }
       }
-
+      
       void
       onDkeyCatalogTimeout(const Interest& interest)
       {
@@ -661,45 +661,45 @@ namespace ndn {
         
         std::map<name::Component, std::map<Name, int>>::iterator it;
         it = user_unretrieve_map.find(user_id);
-          //send out catalog interest
-          Name catalogName(COMMON_PREFIX);
-          catalogName.append(user_id).append(Name(CATALOG_SUFFIX));
-          name::Component timestamp = registerSuccessDataName.get(10);
-          catalogName.append(timestamp);
-          if(registerSuccessDataName.size() > 11) {
-            Link link;
-            link.wireDecode(interest.getName().get(-1).blockFromValue());
-            std::cout << "onRegisterInterest got link: " << link << std::endl;
-            user_link_map[user_id] = link;
-          }
-          Interest catalogInterest(catalogName);
-          catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
-          catalogInterest.setMustBeFresh(true);
+        //send out catalog interest
+        Name catalogName(COMMON_PREFIX);
+        catalogName.append(user_id).append(Name(CATALOG_SUFFIX));
+        name::Component timestamp = registerSuccessDataName.get(10);
+        catalogName.append(timestamp);
+        if(registerSuccessDataName.size() > 11) {
+          Link link;
+          link.wireDecode(interest.getName().get(-1).blockFromValue());
+          std::cout << "onRegisterInterest got link: " << link << std::endl;
+          user_link_map[user_id] = link;
+        }
+        Interest catalogInterest(catalogName);
+        catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
+        catalogInterest.setMustBeFresh(true);
         
         const Link * link = getLink(user_id);
         if(link != NULL) {
           catalogInterest.setLink(link->wireEncode());
         }
         
-          m_face.expressInterest(catalogInterest,
-                                 bind(&DSUsync::onCatalogData, this, _1, _2),
-                                 bind(&DSUsync::onCatalogTimeout, this, _1));
-          std::cout << "onRegisterInterest sends I: " << catalogInterest << std::endl;
-          
-          std::map<Name, int> unretrieve_map;
-          unretrieve_map[catalogInterest.getName()] = 0;
-          user_unretrieve_map[user_id] = unretrieve_map;
-          
-          std::map<name::Component, std::map<Name, int>>::iterator outer_it;
-          outer_it = user_unretrieve_map.find(user_id);
-          std::map<Name, int>::iterator inner_it;
-          if (outer_it != user_unretrieve_map.end()) {
-            inner_it = outer_it->second.find(catalogInterest.getName());
-            if (inner_it == outer_it->second.end()) {
-              std::cout << "check if the interest is there " << catalogInterest << std::endl;
-              return;
-            }
+        m_face.expressInterest(catalogInterest,
+                               bind(&DSUsync::onCatalogData, this, _1, _2),
+                               bind(&DSUsync::onCatalogTimeout, this, _1));
+        std::cout << "onRegisterInterest sends I: " << catalogInterest << std::endl;
+        
+        std::map<Name, int> unretrieve_map;
+        unretrieve_map[catalogInterest.getName()] = 0;
+        user_unretrieve_map[user_id] = unretrieve_map;
+        
+        std::map<name::Component, std::map<Name, int>>::iterator outer_it;
+        outer_it = user_unretrieve_map.find(user_id);
+        std::map<Name, int>::iterator inner_it;
+        if (outer_it != user_unretrieve_map.end()) {
+          inner_it = outer_it->second.find(catalogInterest.getName());
+          if (inner_it == outer_it->second.end()) {
+            std::cout << "check if the interest is there " << catalogInterest << std::endl;
+            return;
           }
+        }
         
         shared_ptr<Data> data = make_shared<Data>();
         data->setName(registerSuccessDataName);
