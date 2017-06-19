@@ -226,7 +226,8 @@ namespace ndn {
         std::string content((char *)data.getContent().value(), data.getContent().value_size());
         std::cout << "onCatalogData receives D: " << data.getName() << std::endl;
         std::cout << content << std::endl;
-        char buffer[data.getContent().value_size()+1];
+//        char buffer[data.getContent().value_size()+1];
+        char * buffer = new char[data.getContent().value_size()+1];
         std::strcpy(buffer, content.c_str());
         rapidjson::Document document;
         if (document.ParseInsitu<0>(buffer).HasParseError())
@@ -289,6 +290,7 @@ namespace ndn {
           std::cout << "onCatalogData sends I: " << datapointInterest << std::endl;
           outer_it->second[datapointInterest.getName()] = 0;
         }
+        delete []buffer;
       }
       
       /**
@@ -431,7 +433,8 @@ namespace ndn {
         std::string content((char *)data.getContent().value(), data.getContent().value_size());
         std::cout << "onCKeyCatalog receives D: " << data.getName() << std::endl;
         std::cout << content << std::endl;
-        char buffer[data.getContent().value_size()+1];
+//        char buffer[data.getContent().value_size()+1];
+        char * buffer = new char[data.getContent().value_size()+1];
         std::strcpy(buffer, content.c_str());
         rapidjson::Document document;
         if (document.ParseInsitu<0>(buffer).HasParseError())
@@ -486,6 +489,7 @@ namespace ndn {
           Interest dkeyCatalogInterest(dkeyName);
           tcp_connection_for_local_check.send(dkeyCatalogInterest.wireEncode());
         }
+        delete []buffer;
       }
       
       /**
@@ -543,7 +547,8 @@ namespace ndn {
         std::string content((char *)data.getContent().value(), data.getContent().value_size());
         std::cout << "onDKeyCatalog receives D: " << data.getName() << std::endl;
         std::cout << content << std::endl;
-        char buffer[data.getContent().value_size()+1];
+//        char buffer[data.getContent().value_size()+1];
+        char * buffer = new char[data.getContent().value_size()+1];
         std::strcpy(buffer, content.c_str());
         rapidjson::Document document;
         if (document.ParseInsitu<0>(buffer).HasParseError())
@@ -590,6 +595,7 @@ namespace ndn {
           std::cout << "onDKeyCatalog send I: " << dkeyInterest << std::endl;
           outer_it->second[dkeyInterest.getName()] = 0;
         }
+        delete []buffer;
       }
       
       void
