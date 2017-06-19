@@ -156,6 +156,12 @@ namespace ndn {
             Interest resentInterest(data.getName());
             resentInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
             resentInterest.setMustBeFresh(true);
+            
+            const Link * link = getLink(user_id);
+            if(link != NULL) {
+              resentInterest.setLink(link->wireEncode());
+            }
+            
             if (data.getName().toUri().find(CKEY) != std::string::npos) {
               // ckeycatalog
               m_face.expressInterest(resentInterest,
@@ -189,6 +195,13 @@ namespace ndn {
             Interest datapointInterest(data.getName());
             datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
             datapointInterest.setMustBeFresh(true);
+            
+            // the component at position 2 is user_id
+            const Link * link = getLink(data.getName().get(2));
+            if(link != NULL) {
+              datapointInterest.setLink(link->wireEncode());
+            }
+            
             m_face.expressInterest(datapointInterest,
                                    bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
                                    bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
@@ -205,6 +218,8 @@ namespace ndn {
       
       /**
        * when receive a data catalog, continue to fetch data and CKEY catalog
+       * data calalog name example:
+       * /org/openmhealth/haitao/SAMPLE/fitness/physical_activity/time_location/catalog/20170617T042400
        */
       void onCatalogData(const Interest& interest, const Data& data)
       {
@@ -254,12 +269,19 @@ namespace ndn {
                                  bind(&DSUsync::onCkeyCatalogTimeout, this, _1));*/
         }
         //fetch data
+        
+        const Link * link = getLink(user_id);
+        
         for (rapidjson::SizeType i = 0; i<list.Size(); i++) {
           assert(list[i].IsString());
           
           Interest datapointInterest(data.getName().getPrefix(-2).append(list[i].GetString()));
           datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           datapointInterest.setMustBeFresh(true);
+          
+          if(link != NULL) {
+            datapointInterest.setLink(link->wireEncode());
+          }
           
           m_face.expressInterest(datapointInterest,
                                  bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
@@ -299,6 +321,12 @@ namespace ndn {
           Interest catalogInterest(interest.getName());
           catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           catalogInterest.setMustBeFresh(true);
+          
+          const Link * link = getLink(user_id);
+          if(link != NULL) {
+            catalogInterest.setLink(link->wireEncode());
+          }
+          
           m_face.expressInterest(catalogInterest,
                                  bind(&DSUsync::onCatalogData, this, _1, _2),
                                  bind(&DSUsync::onCatalogTimeout, this, _1));
@@ -310,6 +338,14 @@ namespace ndn {
       
       /**
        * upon receiving data or CKey, insert into repo
+       * data point name example:
+       * /org/openmhealth/haitao/SAMPLE/fitness/physical_activity/time_location/20170617T042500/FOR/org/openmhealth/haitao/SAMPLE/fitness/physical_activity/time_location/C-KEY/20170617T040000
+       * CKey name example:
+       * /org/openmhealth/haitao/SAMPLE/fitness/physical_activity/time_location/C-KEY/20170617T040000/FOR/org/openmhealth/haitao/READ/fitness/E-KEY/20170617T000000/20170618T000000
+       * EKey name example:
+       * /org/openmhealth/haitao/READ/fitness/E-KEY/20170617T000000/20170618T000000
+       * DKey name example:
+       * /org/openmhealth/haitao/READ/fitness/E-KEY/20170617T000000/20170618T000000/FOR/<>
        */
       void onDatapointOrCKeyData(const Interest& interest, const Data& data)
       {
@@ -366,6 +402,12 @@ namespace ndn {
           Interest datapointInterest(interest.getName());
           datapointInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           datapointInterest.setMustBeFresh(true);
+          
+          const Link * link = getLink(user_id);
+          if(link != NULL) {
+            datapointInterest.setLink(link->wireEncode());
+          }
+          
           m_face.expressInterest(datapointInterest,
                                  bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
                                  bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
@@ -380,6 +422,8 @@ namespace ndn {
        * (1) ckey
        * (2) e-key
        * (3) d-key catalog
+       * CKey catalog name example:
+       * /org/openmhealth/haitao/SAMPLE/fitness/physical_activity/time_location/C-KEY/catalog/20170617T040000
        */
       void
       onCKeyCatalog (const Interest& interest, const Data& data)
@@ -422,6 +466,12 @@ namespace ndn {
           Interest ckeyInterest(Name(list[i].GetString()));
           ckeyInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           ckeyInterest.setMustBeFresh(true);
+          
+          const Link * link = getLink(user_id);
+          if(link != NULL) {
+            ckeyInterest.setLink(link->wireEncode());
+          }
+          
           m_face.expressInterest(ckeyInterest,
                                  bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
                                  bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
@@ -467,6 +517,12 @@ namespace ndn {
           Interest ckeyCatalogInterest(interest.getName());
           ckeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           ckeyCatalogInterest.setMustBeFresh(true);
+          
+          const Link * link = getLink(user_id);
+          if(link != NULL) {
+            ckeyCatalogInterest.setLink(link->wireEncode());
+          }
+          
           m_face.expressInterest(ckeyCatalogInterest,
                                  bind(&DSUsync::onCKeyCatalog, this, _1, _2),
                                  bind(&DSUsync::onCkeyCatalogTimeout, this, _1));
@@ -476,6 +532,11 @@ namespace ndn {
         inner_it->second = ckeyCatalogRetry;
       }
       
+      /**
+       * continue to retrieve DKey
+       * DKey catalog name example:
+       * /org/openmhealth/haitao/READ/fitness/D-KEY/catalog/20170617T000000/20170618T000000
+       */
       void
       onDKeyCatalog (const Interest& interest, const Data& data)
       {
@@ -517,6 +578,12 @@ namespace ndn {
           Interest dkeyInterest(Name(list[i].GetString()));
           dkeyInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           dkeyInterest.setMustBeFresh(true);
+          
+          const Link * link = getLink(user_id);
+          if(link != NULL) {
+            dkeyInterest.setLink(link->wireEncode());
+          }
+          
           m_face.expressInterest(dkeyInterest,
                                  bind(&DSUsync::onDatapointOrCKeyData, this, _1, _2),
                                  bind(&DSUsync::onDatapointOrCKeyTimeout, this, _1));
@@ -553,6 +620,12 @@ namespace ndn {
           Interest dkeyCatalogInterest(interest.getName());
           dkeyCatalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           dkeyCatalogInterest.setMustBeFresh(true);
+          
+          const Link * link = getLink(user_id);
+          if(link != NULL) {
+            dkeyCatalogInterest.setLink(link->wireEncode());
+          }
+          
           m_face.expressInterest(dkeyCatalogInterest,
                                  bind(&DSUsync::onDKeyCatalog, this, _1, _2),
                                  bind(&DSUsync::onDkeyCatalogTimeout, this, _1));
@@ -575,6 +648,9 @@ namespace ndn {
       
       /**
        * the android client sends register interest for each catalog
+       * a name example:
+       * /ndn/edu/ucla/remap/ndnfit/dsu/register/org/openmhealth/haitao/<timepoint>/<link object>
+       * there may be no link object
        */
       void
       onRegisterInterest(const InterestFilter& filter, const Interest& interest)
@@ -588,13 +664,23 @@ namespace ndn {
           //send out catalog interest
           Name catalogName(COMMON_PREFIX);
           catalogName.append(user_id).append(Name(CATALOG_SUFFIX));
-          if(registerSuccessDataName.size() > 10) {
-            name::Component timestamp = registerSuccessDataName.get(10);
-            catalogName.append(timestamp);
+          name::Component timestamp = registerSuccessDataName.get(10);
+          catalogName.append(timestamp);
+          if(registerSuccessDataName.size() > 11) {
+            Link link;
+            link.wireDecode(interest.getName().get(-1).blockFromValue());
+            std::cout << "onRegisterInterest got link: " << link << std::endl;
+            user_link_map[user_id] = link;
           }
           Interest catalogInterest(catalogName);
           catalogInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
           catalogInterest.setMustBeFresh(true);
+        
+        const Link * link = getLink(user_id);
+        if(link != NULL) {
+          catalogInterest.setLink(link->wireEncode());
+        }
+        
           m_face.expressInterest(catalogInterest,
                                  bind(&DSUsync::onCatalogData, this, _1, _2),
                                  bind(&DSUsync::onCatalogTimeout, this, _1));
@@ -633,6 +719,18 @@ namespace ndn {
         << std::endl;
       }
       
+      const Link *
+      getLink(const name::Component& user_id) const
+      {
+        std::map<name::Component, Link>::const_iterator link_iterator;
+        link_iterator = user_link_map.find(user_id);
+        if (link_iterator != user_link_map.end()) {
+          return &(link_iterator->second);
+        }
+        return NULL;
+      }
+      
+      
     private:
       // Explicitly create io_service object, which can be shared between Face and Scheduler
       boost::asio::io_service m_ioService;
@@ -642,6 +740,7 @@ namespace ndn {
       TcpConnection tcp_connection_for_local_check;
       Scheduler m_scheduler;
       std::map<name::Component, std::map<Name, int>> user_unretrieve_map;
+      std::map<name::Component, Link> user_link_map;
       KeyChain m_keyChain;
     };
     
