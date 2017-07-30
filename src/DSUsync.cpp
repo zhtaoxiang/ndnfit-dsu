@@ -56,9 +56,9 @@ namespace ndn {
     
     static const int INTEREST_TIME_OUT_SECONDS = 60;
     
-    static const std::string CONFIRM_PREFIX = "/ndn/edu/ucla/remap/ndnfit/dsu/confirm/org/openmhealth";
-    static const std::string REGISTER_PREFIX = "/ndn/edu/ucla/remap/ndnfit/dsu/register/org/openmhealth";
-    static const std::string CONFIRM_PREFIX_FOR_REPLY = "/ndn/edu/ucla/remap/ndnfit/dsu/confirm";
+    static const std::string CONFIRM_PREFIX = "/org/openmhealth/dsu/confirm/org/openmhealth";
+    static const std::string REGISTER_PREFIX = "/org/openmhealth/dsu/register/org/openmhealth";
+    static const std::string CONFIRM_PREFIX_FOR_REPLY = "/org/openmhealth/dsu/confirm";
     
     class DSUsync : noncopyable
     {
@@ -646,7 +646,7 @@ namespace ndn {
       {
         std::cout << "onConfirmInterest receives I: " << interest << std::endl;
         
-        Interest dataInterest(interest.getName().getSubName(7));
+        Interest dataInterest(interest.getName().getSubName(4));
         
         std::cout << "onConfirmInterest sends I to repo:" << dataInterest << std::endl;
         tcp_connection_for_confirmation.send(dataInterest.wireEncode());
@@ -655,7 +655,7 @@ namespace ndn {
       /**
        * the android client sends register interest for each catalog
        * a name example:
-       * /ndn/edu/ucla/remap/ndnfit/dsu/register/org/openmhealth/haitao/<timepoint>/<link object>
+       * /org/openmhealth/dsu/register/org/openmhealth/haitao/<timepoint>/<link object>
        * there may be no link object
        */
       void
@@ -663,16 +663,16 @@ namespace ndn {
       {
         std::cout << "onRegisterInterest receives I: " << interest << std::endl;
         Name registerSuccessDataName(interest.getName());
-        name::Component user_id = registerSuccessDataName.get(9);
+        name::Component user_id = registerSuccessDataName.get(6);
         
         std::map<name::Component, std::map<Name, int>>::iterator it;
         it = user_unretrieve_map.find(user_id);
         //send out catalog interest
         Name catalogName(COMMON_PREFIX);
         catalogName.append(user_id).append(Name(CATALOG_SUFFIX));
-        name::Component timestamp = registerSuccessDataName.get(10);
+        name::Component timestamp = registerSuccessDataName.get(7);
         catalogName.append(timestamp);
-        if(registerSuccessDataName.size() > 11) {
+        if(registerSuccessDataName.size() > 8) {
           Link link;
           link.wireDecode(interest.getName().get(-1).blockFromValue());
           std::cout << "onRegisterInterest got link: " << link << std::endl;
