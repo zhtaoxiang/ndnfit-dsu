@@ -43,6 +43,8 @@ def configure(conf):
     except:
         pass
 
+    conf.write_config_header('config.hpp')
+
 #    conf.define('DEFAULT_CONFIG_FILE', '%s/ndn/repo-ng.conf' % conf.env['SYSCONFDIR'])
 
 #    conf.write_config_header('src/config.hpp')
