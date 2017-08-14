@@ -173,7 +173,7 @@ namespace ndn {
               m_face.expressInterest(resentInterest,
                                      bind(&DSUsync::onDatapointOrCKeyOrEKeyOrDKeyData, this, _1, _2),
                                      bind(&DSUsync::onDatapointOrCKeyOrEKeyOrDKeyTimeout, this, _1));
-            } else if(data.getName().toUri().find(EKEY) != std::string::npos) {
+            } else if(data.getName().toUri().find(DKEY) != std::string::npos) {
               //d-key catalog
               m_face.expressInterest(resentInterest,
                                      bind(&DSUsync::onDKeyCatalog, this, _1, _2),
