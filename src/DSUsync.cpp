@@ -384,6 +384,17 @@ namespace ndn {
         //put data into repo
         tcp_connection_for_putting_data.send(data.wireEncode());
         
+        // fetch access manager's cert
+        // assume the keylocator contains name, but this may change later
+        // TODO: notice that
+        // (1) users' certs and ndnfit trust anchor can be served by ndnfit website
+        // (2) in those certs, the third component is not user id, but is "KEY"
+        // fix this bug later
+        if (data.getName().toUri().find(EKEY) != std::string::npos) {
+          Interest certInterest(data.getSignature().getKeyLocator().getName());
+          tcp_connection_for_local_check.send(certInterest.wireEncode());
+        }
+        
       }
       
       /**
