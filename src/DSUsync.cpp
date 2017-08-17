@@ -33,7 +33,7 @@
  * other complimentaty logic
  * there is a 2-layer map to keep track of all the interest, if an interest times out
  * 1. if it is data catalog interest, keep sending it, never stop
- * 2. if it is other interest, send at most 3 times, then remove the entry (TODO: revise the logic later, this logic has not been implemented)
+ * 2. if it is other interest, send at most 3 times, then remove the entry
  */
 namespace ndn {
   namespace dsu {
@@ -44,6 +44,7 @@ namespace ndn {
     static const std::string DATA_SUFFIX = "/SAMPLE/fitness/physical_activity/time_location";
     
     static const std::string CATALOG = "catalog";
+    static const std::string KEY = "KEY";
     static const std::string CKEY = "C-KEY";
     static const std::string EKEY = "E-KEY";
     static const std::string DKEY = "D-KEY";
@@ -99,6 +100,10 @@ namespace ndn {
                                  bind(&DSUsync::onRegisterInterest, this, _1, _2),
                                  RegisterPrefixSuccessCallback(),
                                  bind(&DSUsync::onRegisterFailed, this, _1, _2));
+        
+        // initialize the user_unretrieve_map for getting user certs and ndnfit trust anchor cert
+        std::map<Name, int> unretrieve_map;
+        user_unretrieve_map[name::Component(KEY)] = unretrieve_map;
         
         // m_ioService.run() will block until all events finished or m_ioService.stop() is called
         m_ioService.run();
@@ -157,8 +162,10 @@ namespace ndn {
             resentInterest.setInterestLifetime(time::seconds(INTEREST_TIME_OUT_SECONDS));
             resentInterest.setMustBeFresh(true);
             
+            // set link for interests except for users' certs and ndnfit trust anchor cert, as they are
+            // provided by the website
             const Link * link = getLink(user_id);
-            if(link != NULL) {
+            if(link != NULL && KEY.compare(user_id.toUri()) != 0) {
               resentInterest.setLink(link->wireEncode());
             }
             
@@ -342,7 +349,7 @@ namespace ndn {
           m_face.expressInterest(catalogInterest,
                                  bind(&DSUsync::onCatalogData, this, _1, _2),
                                  bind(&DSUsync::onCatalogTimeout, this, _1));
-          std::cout << "onCatalogTimeout sends I: " << catalogInterest << std::endl;
+//          std::cout << "onCatalogTimeout sends I: " << catalogInterest << std::endl;
           catalogRetry++;
         }
         inner_it->second = catalogRetry;
@@ -384,16 +391,15 @@ namespace ndn {
         //put data into repo
         tcp_connection_for_putting_data.send(data.wireEncode());
         
-        // fetch access manager's cert
+        // fetch certs
         // assume the keylocator contains name, but this may change later
-        // TODO: notice that
+        // notice that
         // (1) users' certs and ndnfit trust anchor can be served by ndnfit website
         // (2) in those certs, the third component is not user id, but is "KEY"
-        // fix this bug later
-        if (data.getName().toUri().find(EKEY) != std::string::npos) {
-          Interest certInterest(data.getSignature().getKeyLocator().getName());
-          tcp_connection_for_local_check.send(certInterest.wireEncode());
-        }
+//        if (data.getName().toUri().find(EKEY) != std::string::npos) {
+        Interest certInterest(data.getSignature().getKeyLocator().getName());
+        tcp_connection_for_local_check.send(certInterest.wireEncode());
+//        }
         
       }
       
