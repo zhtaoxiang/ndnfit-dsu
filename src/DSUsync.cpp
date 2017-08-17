@@ -692,6 +692,9 @@ namespace ndn {
       {
         std::cout << "onRegisterInterest receives I: " << interest << std::endl;
         Name registerSuccessDataName(interest.getName());
+        if (registerSuccessDataName.size() < 8) {
+          return;
+        }
         name::Component user_id = registerSuccessDataName.get(6);
         
         std::map<name::Component, std::map<Name, int>>::iterator it;
